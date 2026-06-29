@@ -1,0 +1,37 @@
+# Project : BO-Toy2DAC-Frequency-Scheduling
+# Written by MAU
+# GitHub  : https://github.com/Ugeoscience/BO-Toy2DAC-Frequency-Scheduling
+# License : Copyright (c) 2026, Ugeoscience. BSD 3-Clause License: redistribution and use in source/binary forms are permitted, with or without modification, provided the copyright notice, license conditions, and disclaimer are retained; the Ugeoscience name or contributor names may not be used for endorsement without prior written permission; the software is provided "AS IS" without warranties or liability.
+#
+# BO-FWI: Bayesian Optimisation for Frequency Scheduling in toy2dac FWI
+# Python >= 3.10 recommended
+# Install with:  pip install -r requirements.txt
+
+# ── Core numerical stack ───────────────────────────────────────────
+numpy>=1.24
+scipy>=1.11
+pandas>=2.0
+
+# ── PyTorch (CPU-only; drop +cpu suffix if you have CUDA) ─────────
+torch>=2.1.0
+
+# ── Bayesian optimisation ─────────────────────────────────────────
+botorch>=0.10.0          # GP surrogate + EI acquisition
+gpytorch>=1.11           # kernel library underlying BoTorch
+optuna>=3.5              # fallback / ablation: tree-structured Parzen
+
+# ── Visualisation ─────────────────────────────────────────────────
+matplotlib>=3.8
+seaborn>=0.13
+imageio>=2.33            # animated GIFs of GP convergence
+
+# ── Progress & logging ────────────────────────────────────────────
+tqdm>=4.66
+rich>=13.7               # pretty terminal tables
+
+# ── Seismic / geophysical I/O (optional but useful) ───────────────
+segyio>=1.9              # read SEG-Y Marmousi files
+obspy>=1.4               # broad seismic format support
+
+# ── Experiment reproducibility ────────────────────────────────────
+jsonlines>=4.0           # streaming JSONL experiment logs
