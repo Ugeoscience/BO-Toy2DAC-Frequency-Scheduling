@@ -3,55 +3,6 @@ BO-Toy2DAC Frequency Scheduling
 This repository contains the reproducibility materials for the manuscript: "Automatic frequency scheduling for multi-scale full-waveform inversion via Bayesian optimization"
 
 The project implements a Bayesian-optimization framework for automatic frequency-schedule design in frequency-domain full-waveform inversion (FWI). Candidate frequency schedules are encoded by five interpretable parameters and evaluated through complete multi-scale FWI runs using Toy2DAC. A Gaussian-process surrogate with a log-Expected-Improvement acquisition function is used to guide the search toward improved schedules.
-
-Repository structure:
-
-BO-Toy2DAC-Frequency-Scheduling/
-│
-├── README.md
-├── LICENSE
-├── requirements.txt
-│
-├── config/
-│   ├── bo_search_bounds.yaml
-│   ├── expert_schedule.yaml
-│   ├── random_search_seeds.yaml
-│   └── grid_search.yaml
-│
-├── scripts/
-│   ├── run_bo_search.py
-│   ├── run_expert_schedule.py
-│   ├── run_random_search.py
-│   ├── run_grid_search.py
-│   ├── run_noise_tests.py
-│   ├── run_starting_model_test.py
-│   └── compute_metrics.py
-│
-├── toy2dac_templates/
-│   ├── fdfd_input_template
-│   ├── toy2dac_input_modeling_template
-│   ├── toy2dac_input_inversion_template
-│   └── acquisition_geometry/
-│
-├── schedules/
-│   ├── expert_schedule.csv
-│   ├── bo_best_schedule.csv
-│   ├── random_search_schedules.csv
-│   └── grid_search_schedules.csv
-│
-├── results/
-│   ├── bo_history.csv
-│   ├── random_search_results.csv
-│   ├── grid_search_results.csv
-│   ├── noise_results.csv
-│   ├── starting_model_results.csv
-│   └── cost_logs.csv
-│
-├── figures/
-│   ├── make_figure_1.py
-│   ├── make_figure_2.py
-│   └── ...
-
     
 Requirements
 The Bayesian-optimization controller was developed in Python. The main Python dependencies are:
