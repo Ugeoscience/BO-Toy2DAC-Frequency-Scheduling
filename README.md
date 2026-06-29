@@ -22,7 +22,7 @@ External software
   The FWI simulations are performed using Toy2DAC, a 2D acoustic frequency-domain FWI code developed by the SEISCOPE Consortium.
   Toy2DAC is not redistributed in this repository. Users should obtain Toy2DAC directly from the SEISCOPE distribution page and follow its licensing terms and installation instructions.
   Toy2DAC distribution page: "https://seiscope2.osug.fr/sites/seiscope2.osug.fr/IMG/tgz/toy2dac_v2.6_2019_05_24-2.tgz"
-  After installing Toy2DAC, update the executable path in the configuration files or scripts before running the experiments.
+    After installing Toy2DAC, update the local Toy2DAC executable and working-directory paths in the scripts before running the experiments.
 
 Data
 
@@ -43,5 +43,5 @@ Citation
 
 License:
 
-    The Python scripts developed for this study are released under the BSD 3-Clause License.
-    Toy2DAC is external software and is subject to its own licensing terms.
+The Python scripts developed for this study are released under the BSD 3-Clause License.
+Toy2DAC is external software and is subject to its own licensing terms.
