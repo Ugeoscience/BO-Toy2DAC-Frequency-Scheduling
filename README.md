@@ -43,5 +43,5 @@ Citation
 
 License:
 
-  The Python scripts and configuration files developed for this study are released under the BSD 3-Clause License. See the LICENSE file for details.
-  Toy2DAC is external software and is subject to its own licensing terms.
+    The Python scripts developed for this study are released under the BSD 3-Clause License.
+    Toy2DAC is external software and is subject to its own licensing terms.
