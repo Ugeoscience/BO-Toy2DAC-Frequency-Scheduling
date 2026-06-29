@@ -17,8 +17,6 @@ The Bayesian-optimization controller was developed in Python. The main Python de
   GPyTorch
   PyYAML
   
-Install the Python dependencies using: "pip install -r requirements.txt" or create an equivalent conda environment.
-
 External software
 
   The FWI simulations are performed using Toy2DAC, a 2D acoustic frequency-domain FWI code developed by the SEISCOPE Consortium.
