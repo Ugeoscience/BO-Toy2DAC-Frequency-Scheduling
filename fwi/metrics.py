@@ -2,7 +2,7 @@
 Project : BO-Toy2DAC-Frequency-Scheduling
 Written by MAU
 GitHub  : https://github.com/Ugeoscience/BO-Toy2DAC-Frequency-Scheduling
-License : Copyright (c) 2026, Ugeoscience. BSD 3-Clause License: redistribution and use in source/binary forms are permitted, with or without modification, provided the copyright notice, license conditions, and disclaimer are retained; the Ugeoscience name or contributor names may not be used for endorsement without prior written permission; the software is provided "AS IS" without warranties or liability.
+License : BSD 3-Clause License. Copyright (c) 2026, Ugeoscience. Redistribution and use in source and binary forms, with or without modification, are permitted provided that copyright notice, license conditions, and disclaimer are retained. Neither Ugeoscience nor contributor names may be used to endorse or promote derived products without prior written permission. This software is provided "AS IS", without warranties or liability.
 
 fwi/metrics.py
 ──────────────
@@ -14,7 +14,7 @@ Two objectives are defined:
   unsupervised  Ju(θ) = Σ_ω Σ_s ‖R p_s(m_est,ω) − d^obs_s(ω)‖²  ← field-realistic
 
 Both are returned by evaluate_result().  The BO surrogate is trained on
-the supervised objective during development.
+the supervised objective during development; report both in the paper.
 """
 
 from __future__ import annotations
@@ -69,11 +69,220 @@ def r_squared(m_est: np.ndarray, m_true: np.ndarray) -> float:
 
 
 def ssim(
-    m_est:  np.ndarray,
-    m_true: np.ndarray,
-    c1: float = 0.01 ** 2,
-    c2: float = 0.03 ** 2,
+    m_est:      np.ndarray,
+    m_true:     np.ndarray,
+    win_size:   int   = 7,
+    data_range: float = None,
 ) -> float:
+    """
+    Mean Structural Similarity Index (SSIM) between two velocity models,
+    computed with LOCAL sliding windows as defined by Wang et al. (2004).
+
+    This is the standard windowed SSIM: per-pixel local means, variances and
+    covariance are estimated over a `win_size`×`win_size` neighbourhood and the
+    SSIM map is averaged. It replaces the earlier single-global-window estimate
+    (which collapsed every local statistic to one image-wide number and was not
+    the metric of Wang et al.). Reported SSIM values therefore differ from
+    previous drafts and should again be cited to Wang et al. (2004).
+
+    Parameters
+    ----------
+    m_est, m_true : (nz, nx) velocity arrays [m/s]
+    win_size      : odd window side length (default 7, as in skimage)
+    data_range    : dynamic range of the reference; defaults to
+                    m_true.max() - m_true.min()
+
+    Returns
+    -------
+    float in [-1, 1]  (1 = identical)
+    """
+    # Prefer the reference implementation when available.
+    try:
+        from skimage.metrics import structural_similarity as _sk_ssim
+        dr = (float(m_true.max() - m_true.min())
+              if data_range is None else float(data_range))
+        return float(_sk_ssim(m_true, m_est, win_size=win_size, data_range=dr))
+    except Exception:
+        pass
+
+    # Self-contained fallback (uniform window) — no skimage dependency.
+    from scipy.ndimage import uniform_filter
+    x = m_est.astype(np.float64)
+    y = m_true.astype(np.float64)
+    dr = (float(y.max() - y.min()) if data_range is None else float(data_range))
+    if dr <= 0:
+        dr = 1.0
+    c1 = (0.01 * dr) ** 2
+    c2 = (0.03 * dr) ** 2
+
+    mu_x = uniform_filter(x, size=win_size)
+    mu_y = uniform_filter(y, size=win_size)
+    mu_x2, mu_y2, mu_xy = mu_x * mu_x, mu_y * mu_y, mu_x * mu_y
+    sig_x2 = uniform_filter(x * x, size=win_size) - mu_x2
+    sig_y2 = uniform_filter(y * y, size=win_size) - mu_y2
+    sig_xy = uniform_filter(x * y, size=win_size) - mu_xy
+
+    ssim_map = (((2 * mu_xy + c1) * (2 * sig_xy + c2))
+                / ((mu_x2 + mu_y2 + c1) * (sig_x2 + sig_y2 + c2)))
+    # Trim the border that the window cannot fully cover (skimage convention).
+    pad = win_size // 2
+    return float(ssim_map[pad:-pad, pad:-pad].mean())
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Unsupervised objective (field-realistic)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def data_residual_norm(
+    d_cal: np.ndarray,   # (n_recv, n_src, n_freq) complex predicted data
+    d_obs: np.ndarray,   # (n_recv, n_src, n_freq) complex observed data
+    normalize: bool = True,
+) -> float:
+    """
+    Normalised L² data residual on a held-out frequency set.
+
+        Ju = ‖d_cal − d_obs‖_F² / ‖d_obs‖_F²   (if normalize=True)
+           = ‖d_cal − d_obs‖_F²                   (if normalize=False)
+
+    Pass the validation frequencies that were NOT used in the inversion.
+    """
+    diff = d_cal - d_obs
+    num  = float(np.linalg.norm(diff) ** 2)
+    if normalize:
+        den = float(np.linalg.norm(d_obs) ** 2) + 1e-30
+        return num / den
+    return num
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Aggregated evaluation — call this after every FWI run
+# ──────────────────────────────────────────────────────────────────────────────
+
+def evaluate_result(
+    m_est:   np.ndarray,
+    m_true:  np.ndarray,
+    d_cal_val:  Optional[np.ndarray] = None,
+    d_obs_val:  Optional[np.ndarray] = None,
+    depth_mask: Optional[np.ndarray] = None,
+) -> Dict[str, float]:
+    """
+    Compute the full metric suite for one FWI result.
+
+    Parameters
+    ----------
+    m_est     : inverted velocity model  (nz, nx) [m/s]
+    m_true    : true Marmousi model      (nz, nx) [m/s]
+    d_cal_val : predicted data at held-out validation frequencies (optional)
+    d_obs_val : observed data at held-out validation frequencies (optional)
+    depth_mask: boolean mask for region of interest (optional)
+
+    Returns
+    -------
+    dict with keys:
+      'J'       — normalised RMSE (the BO objective to MINIMISE)
+      'rmse_ms' — absolute RMSE [m/s]
+      'r2'      — coefficient of determination
+      'ssim'    — structural similarity
+      'Ju'      — unsupervised data-residual objective (if data provided)
+    """
+    metrics: Dict[str, float] = {
+        "J":       normalized_rmse(m_est, m_true, mask=depth_mask),
+        "rmse_ms": rmse_ms(m_est, m_true),
+        "r2":      r_squared(m_est, m_true),
+        "ssim":    ssim(m_est, m_true),
+    }
+
+    if d_cal_val is not None and d_obs_val is not None:
+        metrics["Ju"] = data_residual_norm(d_cal_val, d_obs_val)
+    else:
+        metrics["Ju"] = float("nan")
+
+    return metrics
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Marmousi model utilities
+# ──────────────────────────────────────────────────────────────────────────────
+
+def smooth_model(
+    model: np.ndarray,
+    sigma_m: float = 200.0,   # smoothing length in metres
+    dx:      float = 25.0,    # grid spacing [m] — match your cfg.dx
+    dz:      float = 25.0,    # grid spacing [m] — match your cfg.dz
+) -> np.ndarray:
+    """
+    Apply Gaussian smoothing to create a starting model.
+
+    sigma_m is in metres; internally converted to grid-point standard deviations.
+    Typical values for Marmousi: 100–500 m.
+    """
+    from scipy.ndimage import gaussian_filter
+    sigma_x = sigma_m / dx
+    sigma_z = sigma_m / dz
+    return gaussian_filter(model, sigma=[sigma_z, sigma_x])
+
+
+def add_noise_to_data(
+    data: np.ndarray,
+    snr_db: float,
+    rng: np.random.Generator | None = None,
+) -> np.ndarray:
+    """
+    Add zero-mean Gaussian noise to seismogram data to reach target SNR.
+
+    SNR (dB) = 20 log₁₀(‖signal‖ / ‖noise‖)
+
+    Parameters
+    ----------
+    data   : complex or real array of seismograms
+    snr_db : target signal-to-noise ratio in dB
+    rng    : numpy random generator (for reproducibility)
+    """
+    rng         = rng or np.random.default_rng(42)
+    signal_norm = np.linalg.norm(data)
+    snr_linear  = 10.0 ** (snr_db / 20.0)
+    noise_std   = signal_norm / (snr_linear * np.sqrt(data.size))
+
+    if np.iscomplexobj(data):
+        noise = noise_std * (rng.standard_normal(data.shape)
+                             + 1j * rng.standard_normal(data.shape)) / np.sqrt(2)
+    else:
+        noise = noise_std * rng.standard_normal(data.shape)
+
+    return data + noise
+
+
+def depth_zone_mask(
+    nz: int, nx: int,
+    z_min_m: float, z_max_m: float, dz: float,
+) -> np.ndarray:
+    """
+    Boolean mask selecting rows (depth samples) between z_min_m and z_max_m.
+    Use to restrict RMSE computation to a target depth interval.
+    """
+    z_idx_min = max(0,  int(z_min_m / dz))
+    z_idx_max = min(nz, int(z_max_m / dz) + 1)
+    mask = np.zeros((nz, nx), dtype=bool)
+    mask[z_idx_min:z_idx_max, :] = True
+    return mask
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Sample-efficiency helper (used by plots.py)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def evaluations_to_threshold(
+    objective_trace: np.ndarray,   # incumbent values over iterations
+    threshold: float,
+) -> int:
+    """
+    Return the iteration index at which the incumbent first drops below
+    `threshold`.  Returns len(trace) if the threshold is never reached.
+    """
+    for i, val in enumerate(objective_trace):
+        if val <= threshold:
+            return i
+    return len(objective_trace)
     """
     Structural Similarity Index (SSIM) between two velocity models.
     Values in [−1, 1]; 1 means identical.
