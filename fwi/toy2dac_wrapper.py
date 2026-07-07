@@ -2,11 +2,21 @@
 Project : BO-Toy2DAC-Frequency-Scheduling
 Written by MAU
 GitHub  : https://github.com/Ugeoscience/BO-Toy2DAC-Frequency-Scheduling
-License : Copyright (c) 2026, Ugeoscience. BSD 3-Clause License: redistribution and use in source/binary forms are permitted, with or without modification, provided the copyright notice, license conditions, and disclaimer are retained; the Ugeoscience name or contributor names may not be used for endorsement without prior written permission; the software is provided "AS IS" without warranties or liability.
+License : BSD 3-Clause License. Copyright (c) 2026, Ugeoscience. Redistribution and use in source and binary forms, with or without modification, are permitted provided that copyright notice, license conditions, and disclaimer are retained. Neither Ugeoscience nor contributor names may be used to endorse or promote derived products without prior written permission. This software is provided "AS IS", without warranties or liability.
 
 fwi/toy2dac_wrapper.py
 ───────────────────────
 Python interface to toy2dac V2.6 (SEISCOPE, Métivier & Brossier 2016).
+
+Confirmed toy2dac V2.6 conventions (from docs + template inspection):
+  • Binary model files: raw float32, Fortran column-major order (no record markers)
+  • Execution:  mpirun -n N /path/to/toy2dac  (reads all inputs from CWD)
+  • Mode 0 (MODELING): reads toy2dac_input + fdfd_input → writes data_modeling
+  • Mode 1 (INVERSION): reads toy2dac_input + fdfd_input + fwi_input
+                         fwi_input line 1 = observed data filename ("data_modeling")
+                         → writes param_vp_final, iterate_LB.dat / iterate_PLB.dat
+  • freq_management format: line 1 = NFREQ, line 2 = space-separated Hz values
+  • Grid: 681 × 141 × 4 bytes = 384084 bytes  ✓ matches all template .bin files
 """
 
 from __future__ import annotations
@@ -26,8 +36,8 @@ from .schedule import FrequencySchedule, FrequencyGroup
 
 logger = logging.getLogger(__name__)
 
-TEMPLATE = ""
-BIN      = ""
+TEMPLATE = "/home/mau0009/softwares/TOY2DAC_V2.6_BO/run_marmousi_template"
+BIN      = "/home/mau0009/softwares/TOY2DAC_V2.6_BO/bin/toy2dac"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -51,7 +61,7 @@ class Toy2dacConfig:
     dz: float = 25.0   # m
 
     # ── MPI ──────────────────────────────────────────────────────────────────
-    mpi_np:       int = 16       # number of MPI ranks  (mpirun -n N)
+    mpi_np:       int = 4       # number of MPI ranks  (mpirun -n N)
     mpi_launcher: str = "mpirun"  # "mpirun" or "srun" for SLURM clusters
 
     # ── Per-process threads ───────────────────────────────────────────────────
@@ -92,7 +102,7 @@ class Toy2dacWrapper:
     Usage
     ─────
     cfg     = Toy2dacConfig(mpi_np=8, init_model_file="/path/to/custom_init")
-    wrapper = Toy2dacWrapper(cfg, work_root=Path(""))
+    wrapper = Toy2dacWrapper(cfg, work_root=Path("/Data2/Ali/.../results/runs"))
     result  = wrapper.run(schedule, run_id="bo_iter_001")
     model   = result.final_model   # (nz=141, nx=681) float32 array
     """
@@ -111,6 +121,7 @@ class Toy2dacWrapper:
         schedule:           FrequencySchedule,
         run_id:             str            = "run",
         snr_db:             Optional[float] = None,   # None = noise-free
+        noise_seed:         int            = 42,      # noise realization (Exp C)
         keep_intermediates: bool           = False,
     ) -> FWIResult:
         """
@@ -150,6 +161,7 @@ class Toy2dacWrapper:
                     start_model=current_model,
                     grp_dir=grp_dir,
                     snr_db=snr_db,
+                    noise_seed=noise_seed,
                 )
                 histories.append(history)
                 current_model = history["final_model"]
@@ -198,6 +210,7 @@ class Toy2dacWrapper:
         start_model: np.ndarray,
         grp_dir:     Path,
         snr_db:      Optional[float] = None,
+        noise_seed:  int            = 42,
     ) -> Dict:
         """
         Full synthetic workflow for one frequency group:
@@ -251,8 +264,13 @@ class Toy2dacWrapper:
 
         # D ── Noise injection (Experiment C) ──────────────────────────────
         if snr_db is not None:
-            self._inject_noise(data_mod, snr_db)
-            logger.info(f"    Noise injected at SNR={snr_db} dB")
+            # Distinct, reproducible noise per (realization, group): the base
+            # noise_seed selects the realization; the group index offset keeps
+            # successive groups from re-using an identical noise vector.
+            grp_noise_seed = int(noise_seed) * 1000 + int(group.index)
+            self._inject_noise(data_mod, snr_db, seed=grp_noise_seed)
+            logger.info(f"    Noise injected at SNR={snr_db} dB  "
+                        f"(realization seed={noise_seed}, group seed={grp_noise_seed})")
 
         # ═══════════════════════════════════════════════════════════════════
         # E — Write current starting model
@@ -562,7 +580,7 @@ _STATIC_NAMES = [
 ]
 
 # Binary model files read by Fortran DIRECT ACCESS — MUST be physical copies,
-# not symlinks.  Reason: cross-filesystem symlinks
+# not symlinks.  Reason: cross-filesystem symlinks (e.g. /Data2 Lustre →
 # /home NFS) cause Fortran to open a 0-byte placeholder file and then fail
 # with "Non-existing record number" on record 1.
 _BINARY_MODEL_FILES = {
